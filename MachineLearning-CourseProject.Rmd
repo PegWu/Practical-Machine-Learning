@@ -1,0 +1,120 @@
+---
+title: "Practical Machine Learning - Course Project"
+date: "October 20, 2015"
+output: html_document
+---
+
+
+## Introduction
+The goal of this project is to create a machine-learning algorithm that can correctly identify the quality of barbell bicep curls by using data from belt, forearm, arm, and dumbbell monitors. There are five classifications of this exercise, one method is the correct form of the exercise while the other four are common mistakes: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). This is the "classe" variable in the training set. The training data consists of accelerometer data and a label identifying the quality of the activity the participant was doing. The testing data consists of accelerometer data without the identifying label. The goal is to predict the labels for the test set observations.
+
+
+## Load Packages and Data 
+```{r, warning=FALSE}
+# packages
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+
+# data download
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv" 
+download.file(fileUrl, destfile = "training.csv", method = "curl")
+
+fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv" 
+download.file(fileUrl, destfile = "testing.csv", method = "curl")
+
+# read in the data
+training <- read.csv("training.csv")
+testing<-read.csv("testing.csv") 
+```
+
+
+## Data Preparation
+```{r}
+# training dataset - reduce the number of variables
+s.training <- training[, -(1:7)] #remove variables that do not make sense for prediction
+NAs <- sapply(s.training, function(x) mean(is.na(x))) > 0.95 #identify variables with mostly NAs
+s.training <- s.training[, NAs==F] #remove variables that have mostly NAs
+nzv <- nearZeroVar(s.training, saveMetric=TRUE) # identify variables with near zero variance
+nzv <- nearZeroVar(s.training)
+s.training <- s.training[ , -nzv] #remove all variables with near zero variance
+
+# testing dataset - apply the same data cleaning processes as the training dataset
+s.testing <- testing[, -(1:7)] #remove variables that do not make sense for prediction
+NAs <- sapply(s.testing, function(x) mean(is.na(x))) > 0.95 #identify variables with mostly NAs
+s.testing <- s.testing[, NAs==F] #remove variables that have mostly NAs
+nzv <- nearZeroVar(s.testing, saveMetric=TRUE) # identify variables with near zero variance
+
+# Since all of the near zero variance variables (nsv) are FALSE, there's no need to eliminate any covariates due to lack of variablility. Make sure we have the same number of variables as the training dataset.
+```
+
+
+## Subsetting 
+```{r}
+## Subset the training data for further training and testing, before testing on the given dataset. This will provide a better understanding of the out-of-sample error.
+set.seed(100)
+inTrain <- createDataPartition(y=s.training$classe, p=0.6, list=F)
+s.train <- s.training[inTrain, ]
+s.test <- s.training[-inTrain, ]
+```
+
+
+## Model Building
+### (1) rpart Model
+```{r}
+modFit1 <- train(classe ~ ., data=s.train, method="rpart")
+modFit1$finalModel
+fancyRpartPlot(modFit1$finalModel)
+predict1 <- predict(modFit1, s.test)
+confusionMatrix(s.test$classe, predict1)
+```
+The confusion matrix indicates that there is only 49% accuracy rate, which is not that great. 
+
+### (2) Random Forest Model
+```{r}
+modFit2 <- train(classe ~. ,  method="rf", trControl=trainControl(method = "cv", number = 4), data=s.train)
+predict2 <- predict(modFit2, s.test)
+confusionMatrix(predict2, s.test$classe)
+```
+Using random forest method with the same dataset improved the prediction accuracy rate to 99%. 
+
+
+### In-Sample- and Out-of-Sample Error
+The in-sample error is the error rate in the model used to train the data. It is naturally smaller than the model used to predict another dataset (out-of-sample error). For the random forest model used as the final algorithm, the in-sample-error rate is 0; the model is 100% accurate, as indicated by the confusion matrix below. This could be a sign of overfitting. The accuracy rate is decreased when predicting on another datase, as we saw on the above. The confusion matrix above indicated that the model is 99% accurate and the out-of-sample error is 1%.
+
+```{r}
+predict4 <- predict(modFit2, s.train)
+confusionMatrix(predict4, s.train$classe)
+
+```
+
+
+### (3) Full Random Forest Model 
+```{r}
+# retrain the model with full training dataset to predict on the testing dataset to get a more accurate prediction.
+modFit3 <- train(classe ~. ,  method="rf", trControl=trainControl(method = "cv", number = 4), data=s.training)
+predict3 <- predict(modFit3, s.testing) #predict on the test dataset 
+
+```
+
+
+## Write a Function for Submission
+```{r}
+predict3 <- as.character(predict3) #convert prediction results to a character vector
+
+#Write a function for predictions to be saved in single files for assignment submission
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+
+pml_write_files(predict3)
+```
+
+
